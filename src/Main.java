@@ -2,6 +2,8 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
 import java.util.Scanner;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class Main {
 
@@ -14,10 +16,7 @@ public class Main {
             String path = scanner.nextLine();
             File file = new File(path);
 
-            boolean fileExists = file.exists();
-            boolean isDirectory = file.isDirectory();
-
-            if (!fileExists || isDirectory) {
+            if (!file.exists() || file.isDirectory()) {
                 System.out.println("Указанный файл не существует или путь ведет к папке.");
                 continue;
             }
@@ -26,32 +25,39 @@ public class Main {
             System.out.println("Путь указан верно");
             System.out.println("Это файл номер " + fileCounter);
 
-            try {
-                FileReader fileReader = new FileReader(path);
-                BufferedReader reader = new BufferedReader(fileReader);
+            try (BufferedReader reader = new BufferedReader(new FileReader(path))) {
                 String line;
                 int totalLines = 0;
-                int maxLength = Integer.MIN_VALUE;
-                int minLength = Integer.MAX_VALUE;
+                int googlebotCount = 0;
+                int yandexbotCount = 0;
+
+                Pattern logPattern = Pattern.compile("^(\\S+)\\s+-\\s+-\\s+\\[(.+?)\\]\\s+\"(\\S+)\\s+(\\S+)\\s+HTTP/\\S+\"\\s+(\\d{3})\\s+(\\d+)\\s+\"(.*?)\"\\s+\"(.*?)\"$");
 
                 while ((line = reader.readLine()) != null) {
-                    int length = line.length();
-
-                    if (length > 1024) {
+                    if (line.length() > 1024) {
                         throw new LineTooLongException("Ошибка: Строка длиннее 1024 символов в файле: " + path);
                     }
-
                     totalLines++;
-                    if (length > maxLength) {
-                        maxLength = length;
-                    }
-                    if (length < minLength) {
-                        minLength = length;
+
+                    Matcher matcher = logPattern.matcher(line);
+                    if (matcher.find()) {
+                        String userAgent = matcher.group(8);
+                        String botType = extractBotType(userAgent);
+
+                        if ("Googlebot".equals(botType)) {
+                            googlebotCount++;
+                        } else if ("YandexBot".equals(botType)) {
+                            yandexbotCount++;
+                        }
                     }
                 }
-                System.out.println("Общее количество строк в файле: " + totalLines);
-                System.out.println("Длина самой длинной строки: " + maxLength);
-                System.out.println("Длина самой короткой строки: " + minLength);
+
+                double googlebotPercentage = (double) googlebotCount / totalLines * 100;
+                double yandexbotPercentage = (double) yandexbotCount / totalLines * 100;
+
+                System.out.printf("Общее количество строк в файле: %d%n", totalLines);
+                System.out.printf("Запросы от Googlebot: %.2f%%%n", googlebotPercentage);
+                System.out.printf("Запросы от YandexBot: %.2f%%%n", yandexbotPercentage);
             } catch (LineTooLongException ex) {
                 System.out.println(ex.getMessage());
                 break;
@@ -59,5 +65,26 @@ public class Main {
                 ex.printStackTrace();
             }
         }
+    }
+
+    private static String extractBotType(String userAgent) {
+        int startIdx = userAgent.indexOf('(');
+        int endIdx = userAgent.indexOf(')');
+
+        if (startIdx != -1 && endIdx != -1) {
+            String firstBrackets = userAgent.substring(startIdx + 1, endIdx);
+            String[] parts = firstBrackets.split(";");
+
+            if (parts.length >= 2) {
+                String fragment = parts[1].trim();
+                int slashIdx = fragment.indexOf('/');
+
+                if (slashIdx != -1) {
+                    return fragment.substring(0, slashIdx).trim();
+                }
+                return fragment.trim();
+            }
+        }
+        return "";
     }
 }
